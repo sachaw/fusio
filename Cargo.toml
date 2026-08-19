@@ -25,7 +25,7 @@ fusio-opendal = { version = "0.6.1", path = "fusio-opendal" }
 fusio-parquet = { version = "0.6.1", path = "fusio-parquet" }
 
 # External dependencies
-arrow = { version = "57" }
+arrow = { version = "58" }
 async-trait = { version = "0.1" }
 async-stream = { version = "0.3" }
 bytes = { version = "1.7", default-features = false }
@@ -40,7 +40,7 @@ js-sys = { version = "0.3.72" }
 monoio = { version = "0.2" }
 object_store = { version = "0.12" }
 opendal = { version = "0.50.1", default-features = false }
-parquet = { version = "57", default-features = false }
+parquet = { version = "58", default-features = false }
 rand = { version = "0.8" }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1" }
