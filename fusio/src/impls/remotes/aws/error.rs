@@ -10,4 +10,7 @@ pub enum S3Error {
     AuthorizeError(#[from] AuthorizeError),
     #[error("xml parse error: {0}")]
     XmlParseError(#[from] quick_xml::DeError),
+    // quick-xml 0.41 split serialization out of `DeError`.
+    #[error("xml serialize error: {0}")]
+    XmlSerializeError(#[from] quick_xml::SeError),
 }

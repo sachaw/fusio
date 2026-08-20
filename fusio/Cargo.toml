@@ -112,7 +112,7 @@ monoio-http-client = { version = "0.3.3", optional = true }
 monoio-http = { version = "0.3", optional = true }
 object_store = { workspace = true, optional = true, features = ["aws"] }
 percent-encoding = { version = "2", default-features = false }
-quick-xml = { version = "0.36", features = [
+quick-xml = { version = "0.41", features = [
     "overlapped-lists",
     "serialize",
 ], optional = true }
