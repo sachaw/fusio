@@ -8,7 +8,7 @@ use fusio::{
 };
 use futures_core::Stream;
 use futures_util::stream::StreamExt;
-use object_store::ObjectStore;
+use object_store::{ObjectStore, ObjectStoreExt};
 
 use crate::{BoxedError, S3File};
 
