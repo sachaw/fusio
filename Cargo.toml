@@ -38,7 +38,7 @@ futures-executor = { version = "0.3" }
 futures-util = { version = "0.3" }
 js-sys = { version = "0.3.72" }
 monoio = { version = "0.2" }
-object_store = { version = "0.12" }
+object_store = { version = "0.13" }
 opendal = { version = "0.50.1", default-features = false }
 parquet = { version = "59", default-features = false }
 rand = { version = "0.8" }

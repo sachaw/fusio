@@ -121,7 +121,7 @@ mod tests {
         use std::{env, env::VarError, sync::Arc};
 
         use bytes::Bytes;
-        use object_store::{aws::AmazonS3Builder, ObjectStore};
+        use object_store::{aws::AmazonS3Builder, ObjectStore, ObjectStoreExt};
 
         use crate::{Read, S3File, Write};
 
