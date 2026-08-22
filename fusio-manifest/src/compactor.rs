@@ -329,7 +329,18 @@ where
             match self.store.head.put(&new_head, cond.clone()).await {
                 Ok(tag) => {
                     for id in delete_ids {
-                        let _ = self.store.checkpoint.delete(&id).await;
+                        // Best-effort: an orphaned checkpoint is a space leak,
+                        // not a correctness problem — but say so, or it never
+                        // gets noticed.
+                        if let Err(e) = self.store.checkpoint.delete(&id).await {
+                            if !matches!(e, Error::Unimplemented(_)) {
+                                tracing::warn!(
+                                    error = %e,
+                                    checkpoint = id.as_str(),
+                                    "compaction: old checkpoint delete failed; it is orphaned"
+                                );
+                            }
+                        }
                     }
                     if let Some(id) = newest_run {
                         return Ok((id, tag));
@@ -389,11 +400,20 @@ where
                 .min()
                 .unwrap_or(u64::MAX);
             if watermark2 > meta.lsn {
-                let _ = self
+                if let Err(e) = self
                     .store
                     .segment
                     .delete_upto(meta.last_segment_seq_at_ckpt)
-                    .await;
+                    .await
+                {
+                    if !matches!(e, Error::Unimplemented(_)) {
+                        tracing::warn!(
+                            error = %e,
+                            upto = meta.last_segment_seq_at_ckpt,
+                            "gc: segment delete_upto failed; segments remain until next cycle"
+                        );
+                    }
+                }
             }
         }
 
@@ -430,7 +450,15 @@ where
             let keep_referenced = pinned_runs.contains(&id);
             let age_ok = now_ms2.saturating_sub(m.created_at_ms) >= ttl_ms;
             if !keep_newest && !keep_floor && !keep_in_last && !keep_referenced && age_ok {
-                let _ = self.store.checkpoint.delete(&id).await;
+                if let Err(e) = self.store.checkpoint.delete(&id).await {
+                    if !matches!(e, Error::Unimplemented(_)) {
+                        tracing::warn!(
+                            error = %e,
+                            checkpoint = id.as_str(),
+                            "gc: expired checkpoint delete failed; it is orphaned"
+                        );
+                    }
+                }
             }
         }
 
