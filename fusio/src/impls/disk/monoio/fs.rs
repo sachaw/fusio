@@ -37,7 +37,17 @@ impl Fs for MonoIoFs {
             }
         }
 
-        let absolute_path = std::fs::canonicalize(&local_path).unwrap();
+        // A file can vanish between the exists() check above and here — a
+        // compaction removing a segment under a live read session — and that
+        // is an open error for the caller, not a panic for the worker. The
+        // listing path already tolerates exactly this race (NotFound =>
+        // Ok(None)); this reports it through the variant built for it.
+        let absolute_path = std::fs::canonicalize(&local_path).map_err(|source| {
+            Error::Path(Box::new(crate::path::Error::Canonicalize {
+                path: local_path.clone(),
+                source,
+            }))
+        })?;
         let file = monoio::fs::OpenOptions::new()
             .read(options.read)
             .write(options.write)
