@@ -445,8 +445,39 @@ where
     #[tracing::instrument(skip(self), fields(session_type = "read"))]
     pub async fn session_read(&self) -> Result<ReadSession<K, V, HS, SS, CS, LS, E, R>> {
         tracing::debug!("session_read started");
-        let snap = self.snapshot().await?;
-        self.session_at(snap).await
+        // GC honors LEASES, and the lease does not exist until after the
+        // snapshot is taken: a GC cycle landing in that gap deletes segments
+        // the snapshot needs, and the session then opens files that are gone
+        // (observed live as segment NotFound under a fast-polling reader
+        // whose one-shot sessions hold leases for milliseconds).
+        //
+        // The compactor publishes its new HEAD before it lists leases and
+        // deletes, so once this session's lease exists, "HEAD unchanged
+        // since the snapshot" proves no cycle landed in the gap — and every
+        // later cycle will see the lease. Validate exactly that, and retake
+        // the snapshot when it fails: the retry lands on the newest HEAD, so
+        // it converges unless compaction is churning, and the backoff bounds
+        // that.
+        let mut backoff = self.store.opts.backoff.build_backoff();
+        loop {
+            let snap = self.snapshot().await?;
+            let taken_at = snap.head_tag.clone();
+            let sess = self.session_at(snap).await?;
+            let current = self.store.head.load().await?.map(|(_h, tag)| tag);
+            if current == taken_at {
+                return Ok(sess);
+            }
+            sess.end().await?;
+            match backoff.next() {
+                Some(delay) => self.store.opts.timer().sleep(delay).await,
+                None => {
+                    return Err(Error::Other(
+                        "read snapshot could not be pinned: HEAD moved during every attempt"
+                            .into(),
+                    ))
+                }
+            }
+        }
     }
 
     /// Open a write session (pinned, with lease)

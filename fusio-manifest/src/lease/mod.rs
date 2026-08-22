@@ -44,6 +44,11 @@ pub struct ActiveLease {
     pub active_txn_id: Option<u64>,
     pub kind: LeaseKind,
     pub expires_at: Duration,
+    /// The HEAD tag the lease's snapshot was taken at. GC compares it with
+    /// the current tag at delete time: a lease pinned at another head may
+    /// need segments the current head's floor has retired. `None` (an old
+    /// writer) reads as "unknown", which is the conservative side.
+    pub head_tag: Option<String>,
 }
 
 pub trait LeaseStore: MaybeSend + MaybeSync + Clone {
@@ -308,6 +313,7 @@ where
                             active_txn_id: doc.active_txn_id,
                             kind: doc.kind,
                             expires_at: Duration::from_millis(doc.expires_at_ms),
+                            head_tag: doc.head_tag,
                         });
                     }
                 }
