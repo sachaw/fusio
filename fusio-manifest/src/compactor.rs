@@ -370,11 +370,31 @@ where
 
         let meta = self.store.checkpoint.get_checkpoint_meta(&ckpt_id).await?;
         if watermark > meta.lsn {
-            let _ = self
+            // Re-list at the LAST moment: a fast-polling reader's one-shot
+            // sessions hold leases for milliseconds, so the first sample
+            // regularly sees an empty set (watermark = MAX) while a session
+            // is mid-creation. The sliver that remains after this re-list is
+            // closed from the reader's side — session_read validates its
+            // HEAD tag after the lease exists, and this compaction published
+            // its HEAD before either list, so one side always sees the other.
+            let now2 =
+                Duration::from_millis(system_time_to_ms(self.store.opts.timer().system_time()));
+            let watermark2 = self
                 .store
-                .segment
-                .delete_upto(meta.last_segment_seq_at_ckpt)
-                .await;
+                .leases
+                .list_active(now2)
+                .await?
+                .iter()
+                .map(|l| l.snapshot_txn_id)
+                .min()
+                .unwrap_or(u64::MAX);
+            if watermark2 > meta.lsn {
+                let _ = self
+                    .store
+                    .segment
+                    .delete_upto(meta.last_segment_seq_at_ckpt)
+                    .await;
+            }
         }
 
         let ttl_ms: u64 = self
@@ -846,19 +866,40 @@ where
             return Ok(());
         }
 
-        // Segments: prefer contiguous range optimization
-        if let Some(upto) = plan.delete_segments.iter().map(|r| r.end).max() {
-            // Best-effort; stores may return Unimplemented
-            // TODO: use batch deletes where available and bound per-iteration work.
-            self.store.segment.delete_upto(upto).await?;
-        }
+        // A lease created AFTER the plan was computed pins a snapshot this
+        // plan may delete from under: the plan's CAS guards HEAD changes,
+        // not the lease set. Re-list here, at the delete, and STAND DOWN if
+        // anyone is pinned at a head other than the current one — their
+        // snapshot may need segments the current floor has retired. The
+        // plan resets below either way; the next compute folds these leases
+        // into its watermark, so standing down costs one cycle, never
+        // liveness. A lease with no recorded tag reads as pinned-elsewhere,
+        // which is the conservative side.
+        let cur_tag = self.store.head.load().await?.map(|(_h, t)| t.0);
+        let leases_now = self.store.leases.list_active(now).await?;
+        let pinned_elsewhere = leases_now
+            .iter()
+            .any(|l| l.head_tag.is_none() || l.head_tag.as_deref() != cur_tag.as_deref());
+        if pinned_elsewhere {
+            tracing::info!(
+                leases = leases_now.len(),
+                "gc: standing down, an active lease is pinned at another head"
+            );
+        } else {
+            // Segments: prefer contiguous range optimization
+            if let Some(upto) = plan.delete_segments.iter().map(|r| r.end).max() {
+                // Best-effort; stores may return Unimplemented
+                // TODO: use batch deletes where available and bound per-iteration work.
+                self.store.segment.delete_upto(upto).await?;
+            }
 
-        // Checkpoints
-        for id in plan.delete_checkpoints.iter() {
-            self.store
-                .checkpoint
-                .delete(&CheckpointId(id.clone()))
-                .await?;
+            // Checkpoints
+            for id in plan.delete_checkpoints.iter() {
+                self.store
+                    .checkpoint
+                    .delete(&CheckpointId(id.clone()))
+                    .await?;
+            }
         }
 
         // Reset plan to empty using CAS on the plan tag we observed
@@ -946,6 +987,105 @@ mod tests {
             );
             // Running on empty stores does nothing harmful.
             comp.run_once().await.unwrap();
+        })
+    }
+
+    #[rstest]
+    fn gc_stands_down_for_a_lease_pinned_at_another_head(in_memory_stores: InMemoryStores) {
+        block_on(async move {
+            let opts = test_context();
+            // Seed a real HEAD so "the current tag" exists to compare against.
+            let m = Manifest::<String, String, _, _, _, _, NoopExecutor, _>::new_with_context(
+                in_memory_stores.head.clone(),
+                in_memory_stores.segment.clone(),
+                in_memory_stores.checkpoint.clone(),
+                in_memory_stores.lease.clone(),
+                Arc::clone(&opts),
+            );
+            let mut s = m.session_write().await.unwrap();
+            s.put("a".into(), "1".into());
+            let _ = s.commit().await.unwrap();
+
+            // A reader still pinned at a head OTHER than the current one.
+            let lease = in_memory_stores
+                .lease
+                .create(
+                    0,
+                    None,
+                    Some(crate::head::HeadTag("someone-elses-head".into())),
+                    crate::lease::LeaseKind::Read,
+                    Duration::from_secs(60),
+                )
+                .await
+                .expect("lease create");
+
+            let failing_segment = FailingSegmentStore::new(in_memory_stores.segment);
+            let comp = Compactor::<String, String, _, _, _, _, NoopExecutor, _>::new(
+                in_memory_stores.head,
+                failing_segment.clone(),
+                in_memory_stores.checkpoint,
+                in_memory_stores.lease.clone(),
+                Arc::clone(&opts),
+            );
+
+            let plan_store = FsGcPlanStore::new(
+                InMemoryFs::new(),
+                "",
+                BackoffPolicy::default(),
+                NoopExecutor::default(),
+            );
+            let plan = GcPlan {
+                against_head_tag: Some("etag".into()),
+                not_before: Duration::from_secs(0),
+                delete_segments: vec![SegmentRange::new(1, 4)],
+                delete_checkpoints: Vec::new(),
+                make_checkpoints: Vec::new(),
+            };
+            plan_store
+                .put(&plan, PutCondition::IfNotExists)
+                .await
+                .expect("plan install");
+
+            comp.gc_delete_and_reset(&plan_store)
+                .await
+                .expect("stand-down is not an error");
+            assert_eq!(
+                failing_segment.attempts(),
+                0,
+                "a pinned lease must veto the segment delete"
+            );
+            let loaded = plan_store.load().await.expect("plan load");
+            assert_eq!(
+                loaded.expect("plan doc").0,
+                GcPlan::default(),
+                "the plan still resets so the next compute re-folds the lease"
+            );
+
+            // Release the pin: the SAME plan path must now reach the delete.
+            in_memory_stores.lease.release(lease).await.expect("release");
+            let plan_store2 = FsGcPlanStore::new(
+                InMemoryFs::new(),
+                "",
+                BackoffPolicy::default(),
+                NoopExecutor::default(),
+            );
+            let plan2 = GcPlan {
+                against_head_tag: Some("etag".into()),
+                not_before: Duration::from_secs(0),
+                delete_segments: vec![SegmentRange::new(1, 4)],
+                delete_checkpoints: Vec::new(),
+                make_checkpoints: Vec::new(),
+            };
+            plan_store2
+                .put(&plan2, PutCondition::IfNotExists)
+                .await
+                .expect("plan install");
+            let _ = comp.gc_delete_and_reset(&plan_store2).await;
+            assert_eq!(
+                failing_segment.attempts(),
+                1,
+                "with the pin gone the delete must be attempted"
+            );
         })
     }
 
