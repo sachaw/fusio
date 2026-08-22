@@ -538,17 +538,19 @@ where
 
     /// One-shot latest get (no pin)
     pub async fn get_latest(&self, key: &K) -> Result<Option<V>> {
-        let snap = self.snapshot().await?;
-        let sess = self.session_at(snap).await?;
+        // Through session_read, NOT bare snapshot()+session_at(): these
+        // one-shot sessions hold their lease for milliseconds, so they are
+        // the reads GC most often fails to see — they need the validated
+        // path most of all.
+        let sess = self.session_read().await?;
         let value = sess.get(key).await?;
         sess.end().await?;
         Ok(value)
     }
 
-    /// One-shot latest scan (no pin)
+    /// One-shot latest scan
     pub async fn scan_latest(&self, range: Option<ScanRange<K>>) -> Result<Vec<(K, V)>> {
-        let snap = self.snapshot().await?;
-        let sess = self.session_at(snap).await?;
+        let sess = self.session_read().await?;
         let result = match range {
             None => sess.scan().await,
             Some(r) => sess.scan_range(r).await,
