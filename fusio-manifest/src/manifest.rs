@@ -472,8 +472,7 @@ where
                 Some(delay) => self.store.opts.timer().sleep(delay).await,
                 None => {
                     return Err(Error::Other(
-                        "read snapshot could not be pinned: HEAD moved during every attempt"
-                            .into(),
+                        "read snapshot could not be pinned: HEAD moved during every attempt".into(),
                     ))
                 }
             }

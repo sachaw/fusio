@@ -5,14 +5,14 @@ use std::{ops::Range, sync::Arc};
 use fusio::{error::Error, IoBuf, IoBufMut, Read, Write};
 use futures_util::lock::Mutex;
 use object_store::{buffered::BufWriter, path::Path, GetOptions, GetRange, ObjectStore};
-use parquet::arrow::async_writer::{AsyncFileWriter, ParquetObjectWriter};
+use parquet::arrow::async_writer::AsyncFileWriter;
 
 pub type BoxedError = Box<dyn std::error::Error + Send + Sync + 'static>;
 
 pub struct S3File<O: ObjectStore> {
     inner: Arc<O>,
     path: Path,
-    buf: Option<Arc<Mutex<ParquetObjectWriter>>>,
+    buf: Option<Arc<Mutex<BufWriter>>>,
 }
 
 impl<O: ObjectStore> S3File<O> {
@@ -84,9 +84,10 @@ impl<O: ObjectStore> Write for S3File<O> {
         let buf_writer = match self.buf {
             Some(ref mut buf) => buf,
             None => {
-                self.buf = Some(Arc::new(Mutex::new(
-                    BufWriter::new(self.inner.clone(), self.path.clone()).into(),
-                )));
+                self.buf = Some(Arc::new(Mutex::new(BufWriter::new(
+                    self.inner.clone(),
+                    self.path.clone(),
+                ))));
                 self.buf.as_mut().unwrap()
             }
         };
@@ -121,7 +122,7 @@ mod tests {
         use std::{env, env::VarError, sync::Arc};
 
         use bytes::Bytes;
-        use object_store::{aws::AmazonS3Builder, ObjectStore, ObjectStoreExt};
+        use object_store::{aws::AmazonS3Builder, ObjectStoreExt};
 
         use crate::{Read, S3File, Write};
 

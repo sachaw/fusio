@@ -593,7 +593,7 @@ mod tests {
             .await
             .unwrap();
 
-        entries.sort_by(|a, b| a.path.to_string().cmp(&b.path.to_string()));
+        entries.sort_by_key(|e| e.path.to_string());
 
         assert_eq!(
             entries

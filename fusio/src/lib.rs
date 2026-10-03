@@ -104,7 +104,7 @@ mod tests {
         }
 
         async fn flush(&mut self) -> Result<(), Error> {
-            self.w.flush().await.map(Into::into)
+            self.w.flush().await
         }
 
         async fn close(&mut self) -> Result<(), Error> {

@@ -168,7 +168,10 @@ impl<E: Executor + Clone + 'static> AsyncFileReader for AsyncReader<E> {
             let _ = tx.send(result);
         });
 
-        let page_index = options.map(|options| options.page_index()).unwrap_or(false);
+        let page_index = options.is_some_and(|options| {
+            options.offset_index_policy() != PageIndexPolicy::Skip
+                && options.column_index_policy() != PageIndexPolicy::Skip
+        });
         async move {
             let metadata = rx
                 .await
@@ -438,7 +441,8 @@ mod tests {
 
             let builder = ParquetRecordBatchStreamBuilder::new_with_options(
                 reader,
-                ArrowReaderOptions::default().with_page_index(true),
+                ArrowReaderOptions::default()
+                    .with_page_index_policy(parquet::file::metadata::PageIndexPolicy::Required),
             )
             .await
             .unwrap();
