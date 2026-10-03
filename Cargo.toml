@@ -26,7 +26,6 @@ fusio-parquet = { version = "0.6.1", path = "fusio-parquet" }
 
 # External dependencies
 arrow = { version = "59" }
-async-trait = { version = "0.1" }
 async-stream = { version = "0.3" }
 bytes = { version = "1.7", default-features = false }
 cfg-if = { version = "1.0.0" }

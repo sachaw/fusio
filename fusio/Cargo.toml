@@ -69,7 +69,7 @@ opfs = [
 ]
 sync = ["opfs"]
 tokio = ["async-stream", "dep:tokio"]
-tokio-http = ["dep:reqwest", "http", "tokio"]
+tokio-http = ["dep:reqwest", "reqwest/http2", "reqwest/rustls", "http", "tokio"]
 tokio-uring = ["async-stream", "completion-based", "dep:tokio-uring", "no-send"]
 web-http = ["dep:reqwest", "http"]
 # Backward-compatible alias for the web HTTP client (previously named "wasm-http").
@@ -88,7 +88,6 @@ path = "../benches/monoio.rs"
 required-features = ["monoio"]
 
 [dependencies]
-async-trait = { workspace = true }
 async-stream = { workspace = true, optional = true }
 bytes = { workspace = true, optional = true }
 cfg-if = { workspace = true }
@@ -112,14 +111,14 @@ monoio-http-client = { version = "0.3.3", optional = true }
 monoio-http = { version = "0.3", optional = true }
 object_store = { workspace = true, optional = true, features = ["aws"] }
 percent-encoding = { version = "2", default-features = false }
-quick-xml = { version = "0.41", features = [
+quick-xml = { version = "0.42", features = [
     "overlapped-lists",
     "serialize",
 ], optional = true }
-reqwest = { version = "0.12.8", optional = true }
+reqwest = { version = "0.13", optional = true, default-features = false }
 hex = { version = "0.4", optional = true }
-reqsign-aws-v4 = { version = "1", optional = true }
-reqsign-core = { version = "1", optional = true }
+reqsign-aws-v4 = { version = "3.3.1", optional = true }
+reqsign-core = { version = "3.3.2", optional = true }
 serde = { workspace = true, optional = true }
 serde_json = { workspace = true, optional = true }
 serde_urlencoded = { version = "0.7", optional = true }
