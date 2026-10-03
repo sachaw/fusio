@@ -495,10 +495,7 @@ where
     }
     let key_max: K = serde_json::from_slice(&index.key_max_json)
         .map_err(|e| Error::Corrupt(format!("run key_max decode: {e}")))?;
-    if key > &key_max {
-        return Ok(false);
-    }
-    Ok(true)
+    Ok(key <= &key_max)
 }
 
 fn estimate_run_block_size(

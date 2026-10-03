@@ -284,7 +284,7 @@ mod tests {
 
     #[test]
     fn default_chunk_size_is_used_for_small_objects() {
-        let chunk = S3Writer::determine_copy_part_size(1 * 1024 * 1024 * 1024).unwrap();
+        let chunk = S3Writer::determine_copy_part_size(1024 * 1024 * 1024).unwrap();
         assert_eq!(chunk, DEFAULT_COPY_PART_SIZE as u64);
     }
 
@@ -293,7 +293,7 @@ mod tests {
         let large_object = 200_u64 * 1024 * 1024 * 1024;
         let chunk = S3Writer::determine_copy_part_size(large_object).unwrap();
         assert!(chunk > DEFAULT_COPY_PART_SIZE as u64);
-        let part_count = (large_object + chunk - 1) / chunk;
+        let part_count = large_object.div_ceil(chunk);
         assert!(part_count <= S3_MAX_PARTS);
     }
 

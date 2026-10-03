@@ -1090,7 +1090,11 @@ mod tests {
             );
 
             // Release the pin: the SAME plan path must now reach the delete.
-            in_memory_stores.lease.release(lease).await.expect("release");
+            in_memory_stores
+                .lease
+                .release(lease)
+                .await
+                .expect("release");
             let plan_store2 = FsGcPlanStore::new(
                 InMemoryFs::new(),
                 "",

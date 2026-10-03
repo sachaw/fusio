@@ -115,7 +115,7 @@ mod tests {
         };
 
         let tmp_dir = TempDir::new()?;
-        let local_path = Path::from_absolute_path(&tmp_dir.as_ref().join("test.file"))
+        let local_path = Path::from_absolute_path(tmp_dir.as_ref().join("test.file"))
             .map_err(|err| Error::Path(Box::new(err)))?;
         let s3_path: Path = "s3_copy_test.file".into();
 
