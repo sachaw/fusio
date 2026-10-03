@@ -6,7 +6,6 @@ use std::{
 };
 
 use async_stream::stream;
-use async_trait::async_trait;
 use bytes::{Buf, Bytes};
 use chrono::{DateTime, Utc};
 use fusio_core::MaybeSendFuture;
@@ -64,9 +63,9 @@ fn is_s3_express_session_valid(credential: &reqsign_aws_v4::Credential) -> bool 
         return false;
     }
 
-    credential
-        .expires_in
-        .is_none_or(|expires_at| expires_at > Utc::now() + chrono::TimeDelta::seconds(5))
+    credential.expires_in.is_none_or(|expires_at| {
+        expires_at > reqsign_core::time::Timestamp::now() + std::time::Duration::from_secs(5)
+    })
 }
 
 impl S3ExpressCredentialProvider {
@@ -176,8 +175,8 @@ impl S3ExpressCredentialProvider {
             );
         }
 
-        let expires_in = chrono::DateTime::parse_from_rfc3339(&parsed.credentials.expiration)
-            .map_err(|err| {
+        let expires_in: reqsign_core::time::Timestamp =
+            parsed.credentials.expiration.parse().map_err(|err| {
                 reqsign_core::Error::unexpected(format!(
                     "failed to parse s3 express session expiration: {err}"
                 ))
@@ -187,12 +186,11 @@ impl S3ExpressCredentialProvider {
             access_key_id: parsed.credentials.access_key_id,
             secret_access_key: parsed.credentials.secret_access_key,
             session_token: Some(parsed.credentials.session_token),
-            expires_in: Some(expires_in.into()),
+            expires_in: Some(expires_in),
         })
     }
 }
 
-#[async_trait]
 impl reqsign_core::ProvideCredential for S3ExpressCredentialProvider {
     type Credential = reqsign_aws_v4::Credential;
 

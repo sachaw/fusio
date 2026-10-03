@@ -6,18 +6,8 @@ cfg_if::cfg_if! {
         pub(crate) struct TokioFileRead;
 
         impl reqsign_core::FileRead for TokioFileRead {
-            fn file_read<'a, 'b, 'c>(
-                &'a self,
-                path: &'b str,
-            ) -> std::pin::Pin<
-                Box<dyn std::future::Future<Output = reqsign_core::Result<Vec<u8>>> + Send + 'c>,
-            >
-            where
-                'a: 'c,
-                'b: 'c,
-                Self: 'c,
-            {
-                Box::pin(async move { tokio::fs::read(path).await.map_err(Into::into) })
+            async fn file_read(&self, path: &str) -> reqsign_core::Result<Vec<u8>> {
+                tokio::fs::read(path).await.map_err(Into::into)
             }
         }
 
@@ -25,41 +15,24 @@ cfg_if::cfg_if! {
         pub(crate) struct TokioCommandExecute;
 
         impl reqsign_core::CommandExecute for TokioCommandExecute {
-            fn command_execute<'a, 'b, 'c, 'd, 'fut>(
-                &'a self,
-                program: &'b str,
-                args: &'c [&'d str],
-            ) -> std::pin::Pin<
-                Box<
-                    dyn std::future::Future<Output = reqsign_core::Result<reqsign_core::CommandOutput>>
-                        + Send
-                        + 'fut,
-                >,
-            >
-            where
-                'a: 'fut,
-                'b: 'fut,
-                'c: 'fut,
-                'd: 'fut,
-                Self: 'fut,
-            {
-                let program = program.to_owned();
-                let args: Vec<String> = args.iter().map(|s| s.to_string()).collect();
-                Box::pin(async move {
-                    let output = tokio::process::Command::new(&program)
-                        .args(&args)
-                        .output()
-                        .await
-                        .map_err(|e| {
-                            reqsign_core::Error::unexpected(format!(
-                                "execute command {program}: {e}"
-                            ))
-                        })?;
-                    Ok(reqsign_core::CommandOutput {
-                        status: output.status.code().unwrap_or(-1),
-                        stdout: output.stdout,
-                        stderr: output.stderr,
-                    })
+            async fn command_execute(
+                &self,
+                program: &str,
+                args: &[&str],
+            ) -> reqsign_core::Result<reqsign_core::CommandOutput> {
+                let output = tokio::process::Command::new(program)
+                    .args(args)
+                    .output()
+                    .await
+                    .map_err(|e| {
+                        reqsign_core::Error::unexpected(format!(
+                            "execute command {program}: {e}"
+                        ))
+                    })?;
+                Ok(reqsign_core::CommandOutput {
+                    status: output.status.code().unwrap_or(-1),
+                    stdout: output.stdout,
+                    stderr: output.stderr,
                 })
             }
         }
@@ -82,45 +55,32 @@ cfg_if::cfg_if! {
         }
 
         impl reqsign_core::HttpSend for ReqwestHttpSend {
-            fn http_send<'a, 'b>(
-                &'a self,
+            async fn http_send(
+                &self,
                 req: http::Request<bytes::Bytes>,
-            ) -> std::pin::Pin<
-                Box<
-                    dyn std::future::Future<
-                            Output = reqsign_core::Result<http::Response<bytes::Bytes>>,
-                        > + Send
-                        + 'b,
-                >,
-            >
-            where
-                'a: 'b,
-                Self: 'b,
-            {
-                Box::pin(async move {
-                    let (parts, body) = req.into_parts();
-                    let resp = self
-                        .client
-                        .request(parts.method, parts.uri.to_string())
-                        .headers(parts.headers)
-                        .body(body)
-                        .send()
-                        .await
-                        .map_err(|e| {
-                            reqsign_core::Error::unexpected(format!("http request failed: {e}"))
-                        })?;
-
-                    let status = resp.status();
-                    let headers = resp.headers().clone();
-                    let body = resp.bytes().await.map_err(|e| {
-                        reqsign_core::Error::unexpected(format!("read response body: {e}"))
+            ) -> reqsign_core::Result<http::Response<bytes::Bytes>> {
+                let (parts, body) = req.into_parts();
+                let resp = self
+                    .client
+                    .request(parts.method, parts.uri.to_string())
+                    .headers(parts.headers)
+                    .body(body)
+                    .send()
+                    .await
+                    .map_err(|e| {
+                        reqsign_core::Error::unexpected(format!("http request failed: {e}"))
                     })?;
 
-                    let mut builder = http::Response::builder().status(status);
-                    *builder.headers_mut().unwrap() = headers;
-                    builder.body(body).map_err(|e| {
-                        reqsign_core::Error::unexpected(format!("build http response: {e}"))
-                    })
+                let status = resp.status();
+                let headers = resp.headers().clone();
+                let body = resp.bytes().await.map_err(|e| {
+                    reqsign_core::Error::unexpected(format!("read response body: {e}"))
+                })?;
+
+                let mut builder = http::Response::builder().status(status);
+                *builder.headers_mut().unwrap() = headers;
+                builder.body(body).map_err(|e| {
+                    reqsign_core::Error::unexpected(format!("build http response: {e}"))
                 })
             }
         }
