@@ -102,6 +102,17 @@ where
         out
     }
 
+    /// Drop deletions from a run that nothing older lies beneath.
+    ///
+    /// A tombstone only matters while an older run might still hold a value
+    /// for its key. In the oldest run it shadows nothing, and keeping it there
+    /// made the checkpoint grow with every key ever deleted: a manifest that
+    /// retires one key per commit (a table's version history) never stopped
+    /// growing however much it deleted.
+    fn drop_tombstones(records: &mut Vec<Record<K, V>>) {
+        records.retain(|r| r.op != Op::Del);
+    }
+
     async fn collect_l0_delta(
         &self,
         from_seq_inclusive: u64,
@@ -284,7 +295,10 @@ where
                         continue;
                     }
                     next_run_id = next_run_id.saturating_add(1);
-                    let carry_to_store = core::mem::take(&mut carry);
+                    let mut carry_to_store = core::mem::take(&mut carry);
+                    if levels[level_idx + 1..].iter().all(Option::is_none) {
+                        Self::drop_tombstones(&mut carry_to_store);
+                    }
                     let id = self
                         .persist_run(next_run_id, carry_last_seq, carry_to_store)
                         .await?;
@@ -303,7 +317,8 @@ where
                         delete_ids.push(existing_id);
                     }
                     next_run_id = next_run_id.saturating_add(1);
-                    let carry_to_store = core::mem::take(&mut carry);
+                    let mut carry_to_store = core::mem::take(&mut carry);
+                    Self::drop_tombstones(&mut carry_to_store);
                     let id = self
                         .persist_run(next_run_id, carry_last_seq, carry_to_store)
                         .await?;
@@ -1437,6 +1452,54 @@ mod gc_compute_tests {
             // No head yet → None
             let t = comp.gc_compute(&store).await.unwrap();
             assert!(t.is_none());
+        })
+    }
+
+    /// A manifest that retires a key per commit, compacted as it goes: its
+    /// checkpoint holds what is live, not every key it ever deleted.
+    #[rstest]
+    fn the_oldest_run_holds_no_tombstones(in_memory_stores: InMemoryStores) {
+        block_on(async move {
+            let opts = test_context();
+            let m = Manifest::<String, String, _, _, _, _, NoopExecutor, _>::new_with_context(
+                in_memory_stores.head,
+                in_memory_stores.segment,
+                in_memory_stores.checkpoint,
+                in_memory_stores.lease,
+                Arc::clone(&opts),
+            );
+            let comp = m.compactor();
+            // A run at level `n` covers up to 2^n commits, puts and the
+            // deletes that shadow older runs, so the tree holds a few hundred
+            // records at most however long the manifest runs. Without dropping
+            // tombstones the oldest run keeps one per key ever deleted.
+            let bound = 2 * (1usize << opts.max_level) + 4;
+            let mut held = 0;
+            for i in 0..1000u32 {
+                let mut s = m.session_write().await.unwrap();
+                s.put(format!("v{i:04}"), "state".into());
+                if i >= 4 {
+                    s.delete(format!("v{:04}", i - 4));
+                }
+                let _ = s.commit().await.unwrap();
+                comp.compact_once().await.unwrap();
+                let (head, _) = comp.store.head.load().await.unwrap().expect("head");
+                held = 0;
+                for id in head.merge_tree.levels.iter().flatten() {
+                    held += comp.load_run(id).await.unwrap().1.len();
+                }
+                assert!(
+                    held <= bound,
+                    "commit {i}: {held} records held, bound {bound}"
+                );
+            }
+            let r = m.session_read().await.unwrap();
+            let live = r.scan().await.unwrap();
+            r.end().await.unwrap();
+            let mut live: Vec<_> = live.into_iter().map(|(k, _)| k).collect();
+            live.sort();
+            assert_eq!(live, ["v0996", "v0997", "v0998", "v0999"]);
+            assert!(held <= bound, "{held} records held for four live keys");
         })
     }
 }
