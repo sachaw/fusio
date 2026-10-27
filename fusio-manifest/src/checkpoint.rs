@@ -192,7 +192,9 @@ pub trait CheckpointStore: MaybeSend + MaybeSync + Clone {
     fn list(
         &self,
     ) -> impl MaybeSendFuture<
-        Output = Result<impl Stream<Item = Result<(CheckpointId, CheckpointMeta)>> + '_>,
+        Output = Result<
+            impl Stream<Item = Result<(CheckpointId, CheckpointMeta)>> + MaybeSend + '_,
+        >,
     > + '_;
 
     /// Delete a checkpoint by id.
@@ -486,7 +488,9 @@ where
     fn list(
         &self,
     ) -> impl MaybeSendFuture<
-        Output = Result<impl Stream<Item = Result<(CheckpointId, CheckpointMeta)>> + '_>,
+        Output = Result<
+            impl Stream<Item = Result<(CheckpointId, CheckpointMeta)>> + MaybeSend + '_,
+        >,
     > + '_ {
         let dir = if self.prefix.is_empty() {
             "checkpoints/".to_string()

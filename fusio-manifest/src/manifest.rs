@@ -923,7 +923,9 @@ mod tests {
             &self,
         ) -> impl MaybeSendFuture<
             Output = Result<
-                impl futures_util::Stream<Item = Result<(CheckpointId, CheckpointMeta)>> + '_,
+                impl futures_util::Stream<Item = Result<(CheckpointId, CheckpointMeta)>>
+                    + fusio_core::MaybeSend
+                    + '_,
             >,
         > + '_ {
             self.inner.list()
