@@ -31,7 +31,7 @@ futures-util = { workspace = true }
 moka = { version = "0.10", features = ["sync"], optional = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-sha2 = { version = "0.10" }
+sha2 = { version = "0.11" }
 thiserror = { workspace = true }
 tracing = "0.1"
 
