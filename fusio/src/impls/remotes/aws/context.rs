@@ -41,17 +41,11 @@ cfg_if::cfg_if! {
 
 cfg_if::cfg_if! {
     if #[cfg(all(feature = "tokio-http", not(target_arch = "wasm32")))] {
-        #[derive(Debug)]
+        // Made at its first request: static credentials never send one, and a
+        // host without a trust store must not panic for a client nothing uses.
+        #[derive(Debug, Default)]
         pub(crate) struct ReqwestHttpSend {
-            client: reqwest::Client,
-        }
-
-        impl Default for ReqwestHttpSend {
-            fn default() -> Self {
-                Self {
-                    client: reqwest::Client::new(),
-                }
-            }
+            client: std::sync::OnceLock<reqwest::Client>,
         }
 
         impl reqsign_core::HttpSend for ReqwestHttpSend {
@@ -60,8 +54,16 @@ cfg_if::cfg_if! {
                 req: http::Request<bytes::Bytes>,
             ) -> reqsign_core::Result<http::Response<bytes::Bytes>> {
                 let (parts, body) = req.into_parts();
-                let resp = self
-                    .client
+                let client = match self.client.get() {
+                    Some(client) => client,
+                    None => {
+                        let client = reqwest::Client::builder().build().map_err(|e| {
+                            reqsign_core::Error::unexpected(format!("http client: {e}"))
+                        })?;
+                        self.client.get_or_init(|| client)
+                    }
+                };
+                let resp = client
                     .request(parts.method, parts.uri.to_string())
                     .headers(parts.headers)
                     .body(body)

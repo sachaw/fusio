@@ -23,6 +23,12 @@ impl TokioClient {
     }
 }
 
+impl From<reqwest::Client> for TokioClient {
+    fn from(client: reqwest::Client) -> Self {
+        Self { client }
+    }
+}
+
 impl HttpClient for TokioClient {
     type RespBody = reqwest::Body;
 

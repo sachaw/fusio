@@ -236,26 +236,26 @@ pub struct AmazonS3Builder {
     s3_express: bool,
     sign_payload: bool,
     checksum: bool,
-    client: Box<dyn DynHttpClient>,
+    client: Option<Box<dyn DynHttpClient>>,
+}
+
+#[allow(unreachable_code)]
+fn default_client() -> Box<dyn DynHttpClient> {
+    cfg_if::cfg_if! {
+        if #[cfg(all(feature = "tokio-http", not(feature = "completion-based")))] {
+            Box::new(crate::remotes::http::tokio::TokioClient::new())
+        } else if #[cfg(all(feature = "web-http", not(feature = "completion-based")))]{
+            Box::new(crate::remotes::http::wasm::WasmClient::new())
+        } else if #[cfg(all(feature = "monoio-http", feature = "completion-based"))]{
+            Box::new(crate::remotes::http::monoio::MonoioClient::new())
+        } else {
+            unreachable!()
+        }
+    }
 }
 
 impl AmazonS3Builder {
-    #[allow(unreachable_code, unused_variables)]
     pub fn new(bucket: String) -> Self {
-        #[allow(clippy::needless_late_init, unused_variables)]
-        let client: Box<dyn DynHttpClient>;
-        cfg_if::cfg_if! {
-            if #[cfg(all(feature = "tokio-http", not(feature = "completion-based")))] {
-                client = Box::new(crate::remotes::http::tokio::TokioClient::new());
-            } else if #[cfg(all(feature = "web-http", not(feature = "completion-based")))]{
-                client = Box::new(crate::remotes::http::wasm::WasmClient::new());
-            } else if #[cfg(all(feature = "monoio-http", feature = "completion-based"))]{
-                client = Box::new(crate::remotes::http::monoio::MonoioClient::new());
-            } else {
-                unreachable!()
-            }
-        }
-
         Self {
             endpoint: None,
             region: "us-east-1".into(),
@@ -265,12 +265,20 @@ impl AmazonS3Builder {
             s3_express: false,
             sign_payload: false,
             checksum: false,
-            client,
+            client: None,
         }
     }
 }
 
 impl AmazonS3Builder {
+    /// Send requests through `client`, which then decides what TLS trusts and how
+    /// long a request may wait. Without one, `build` makes the default client,
+    /// and panics where the host's trust store cannot be read.
+    pub fn client(mut self, client: Box<dyn DynHttpClient>) -> Self {
+        self.client = Some(client);
+        self
+    }
+
     pub fn region(mut self, region: String) -> Self {
         self.region = region;
         self
@@ -407,7 +415,7 @@ impl AmazonS3Builder {
                     sign_payload: self.sign_payload,
                     checksum: self.checksum,
                 },
-                client: self.client,
+                client: self.client.unwrap_or_else(default_client),
             }),
         }
     }
